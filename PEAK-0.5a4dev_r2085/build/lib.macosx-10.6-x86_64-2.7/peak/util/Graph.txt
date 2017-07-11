@@ -1,0 +1,175 @@
+==================
+The Graph Datatype
+==================
+
+``peak.util.Graph`` supplies a ``Graph`` datatype, similar to the ``kjGraph``
+type provided by Aaron Watters' kjBuckets module.
+
+    >>> from peak.util.Graph import Graph
+
+Graphs can be created initially empty, or from iterables of pairs::
+
+    >>> Graph([(1,2)])
+    Graph([(1, 2)])
+    >>> Graph()
+    Graph([])
+
+But not from iterables of non-pairs::
+
+    >>> Graph([1,2])
+    Traceback (most recent call last):
+    ...
+    TypeError: unpack non-sequence
+    >>> Graph([(1,2,3)])
+    Traceback (most recent call last):
+    ...
+    ValueError: ...
+
+Graphs are iterables themselves, and have length::
+
+    >>> list(Graph([(1,2)]))
+    [(1, 2)]
+    >>> g = Graph([(3,4)])
+    >>> Graph(g)
+    Graph([(3, 4)])
+    >>> len(g)
+    1
+
+Graphs compare equal if they contain the same edges::
+
+    >>> Graph([(1,2)]) == Graph([(1,2)])
+    True
+    >>> Graph([(1,2)]) == Graph([(2,1)])
+    False
+    >>> Graph([(1,2),(3,4)]) == Graph([(3,4),(1,2)])
+    True
+    >>> Graph([(1,2),(3,4)]) == Graph([(3,4)])
+    False
+
+    
+Setting an item in a graph adds an edge, unless it's a duplicate::
+
+    >>> g[5] = 6
+    >>> g
+    Graph([(3, 4), (5, 6)])
+    >>> g[5] = 6
+    >>> g
+    Graph([(3, 4), (5, 6)])
+
+Inverting a graph returns a graph with edges reversed::
+
+    >>> ~g
+    Graph([(4, 3), (6, 5)])
+
+Addition and the logical "or" operator merge graphs::
+
+    >>> g + Graph([(1,2)])
+    Graph([(1, 2), (3, 4), (5, 6)])
+    >>> Graph([(1,2)]) | g
+    Graph([(1, 2), (3, 4), (5, 6)])
+
+And subtracting one graph from another yields the subset of the first graph
+that does not contain any edges from the second::
+
+    >>> g - Graph([(1,2)])
+    Graph([(3, 4), (5, 6)])
+    >>> g - Graph([(3,4)])
+    Graph([(5, 6)])
+
+
+Multiplication composes two graphs::
+
+    >>> Graph([(1,2)]) * Graph([(1,2)])
+    Graph([])
+    >>> Graph([(1,2)]) * Graph([(2,3)])
+    Graph([(1, 3)])
+    >>> g * Graph([(2,3)])
+    Graph([])
+    >>> g * Graph([(4,5)])
+    Graph([(3, 5)])
+    >>> g * Graph([(4,5),(4,10)])
+    Graph([(3, 5), (3, 10)])
+
+The "in" operator tests for edge presence::
+
+    >>> (1,2) in g
+    False
+    >>> (3,4) in g
+    True
+
+But is different from the "has_key" method, which tests for start node
+presence::
+
+    >>> g.has_key(1)
+    False
+    >>> g.has_key(3)
+    True
+
+
+And you can get a graph's keys, values, and items::
+
+    >>> g2 = g + [(1,6),(3,9)]
+    >>> g2.keys()
+    [1, 3, 5]
+    >>> g2.values()
+    [6, 4, 9, 6]
+    >>> g2.items()
+    [(1, 6), (3, 4), (3, 9), (5, 6)]
+
+Getting an item returns an arbitrary neighbor, or raises KeyError if the start
+node isn't found::
+
+    >>> g2[3]
+    4
+    >>> g2[1]
+    6
+    >>> g2[9]
+    Traceback (most recent call last):
+    ...
+    KeyError: 9
+  
+
+
+The "add" method works like setting an item::
+
+    >>> g.add(0,-1)
+    >>> g
+    Graph([(0, -1), (3, 4), (5, 6)])
+    >>> g.add(0,-1)
+    >>> g
+    Graph([(0, -1), (3, 4), (5, 6)])
+
+The "fromkeys" constructor creates an identity graph from a set::
+
+    >>> Graph.fromkeys([1,2,3])
+    Graph([(1, 1), (2, 2), (3, 3)])
+
+Graphs can be added in-place::
+
+    >>> g += Graph.fromkeys([1])
+    >>> g
+    Graph([(0, -1), (1, 1), (3, 4), (5, 6)])
+
+The "neighbor" method returns a list of immediate neighbors of a node, and
+"reachable" method returns the set of destination nodes reachable from
+the input node:
+
+    >>> g = Graph([(1,2),(2,3)])
+    >>> g.neighbors(9)
+    []
+    >>> g.neighbors(1)
+    [2]
+    >>> g.reachable(2)
+    Set([3])
+    >>> g.reachable(1)
+    Set([2, 3])
+
+The "restrict" method returns a graph containing only edges starting with
+nodes that are in the second graph's keys::
+
+    >>> Graph().restrict(g)
+    Graph([])
+    >>> Graph([(1,9)]).restrict(g)
+    Graph([(1, 9)])
+
+

@@ -1,0 +1,39 @@
+<location>
+    <import module="bulletins.model"/>
+
+    <!-- define the app's home page -->
+    <view name="index_html" resource="/bulletins/app_root"/>
+
+
+    <!-- Define "specialists" for looking up content -->
+    
+    <location name="Users" id="users">
+        <container lookup="model.UserDM"/>
+        <view name="index_html" resource="bulletins/show_users"/>
+    </location>
+
+    <location name="Bulletins" id="bulletins">
+        <container lookup="model.BulletinDM" />
+        <view name="index_html" resource="bulletins/show_bulletins"/>
+    </location>
+
+    <location name="Categories" id="categories">
+        <container lookup="model.CategoryDM"/>
+        <view name="index_html" resource="bulletins/show_categories"/>
+    </location>
+
+
+    <!-- Define views on content types -->
+
+    <content type="model.User" location="loginId@users">
+        <view name="index_html" resource="/bulletins/user_profile"/>
+    </content>
+
+    <content type="model.Bulletin" location="id@bulletins">
+        <view name="index_html" resource="bulletins/show_bulletin"/>
+    </content>
+
+    <content type="model.Category" location="pathName@categories">
+        <view name="index_html" resource="bulletins/show_category"/>
+    </content>
+</location>

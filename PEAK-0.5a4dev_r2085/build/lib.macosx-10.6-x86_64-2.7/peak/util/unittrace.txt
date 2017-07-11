@@ -1,0 +1,351 @@
+=======================================
+Testing  Invocations with ``unittrace``
+=======================================
+
+.. contents:: Table of Contents
+
+
+-------
+Preface
+-------
+
+The ``unittrace`` module offers a simple way to test whether certain function
+or method calls occurred, with what arguments, and in what order.
+
+Before we begin, it's important to note that the ``unittrace`` module makes use
+of the system profiling hook, ``sys.setprofile()``.  This means that unit tests
+that use ``unittrace`` cannot be profiled, and may cause an active profiler's
+results to become corrupted.  (Unfortunately, Python does not currently offer a
+way to obtain the current profiler or trace hook, so ``unittrace`` cannot call
+the existing hook(s) and so chain back to an existing profiler.)
+
+For the tests/examples in this document, we'll be testing whether the ``foo``
+method of this class has been called::
+
+    >>> class Foo:
+    ...     def foo(self,x=None):
+    ...         pass
+
+We need to be able to test function-call detection, too::
+
+    >>> foo = Foo.foo
+
+And we'll frequently be verifying that a method of a particular instance was
+called, so we need a couple of "particular instances" to call methods on::
+
+    >>> aFoo = Foo()
+    >>> bFoo = Foo()
+
+
+
+---------------------
+The ``unittrace`` API
+---------------------
+
+
+``History`` Objects
+===================
+
+``History`` objects are a queriable collection of ``Call`` events, that can be
+populated via profiler tracing::
+
+    >>> from peak.util.unittrace import History
+    >>> h = History()
+
+Calls are traced using the ``trace()`` method, which takes a callable object,
+and any positional or keyword arguments that should be passed into it::
+
+    >>> h.trace(aFoo.foo,42)
+    >>> h.trace(bFoo.foo,x=27)
+
+Once calls are logged, the history is an iterable collection of ``Call``
+objects, which compare equal to the corresponding functions or methods
+invoked::
+
+    >>> list(h)
+    [Call(...), Call(...)]
+
+    >>> list(h) == [aFoo.foo, bFoo.foo]
+    1
+
+Histories are also queryable; you can use the ``callsTo()`` method to return
+an iterator over matching calls.  Calls are matched by function/method, and
+optional keyword arguments.  Only the supplied keywords are checked::
+
+    >>> list(h.callsTo(foo))
+    [Call(...), Call(...)]
+    >>> list(h.callsTo(aFoo.foo)) == [aFoo.foo]
+    1
+    >>> list(h.callsTo(bFoo.foo)) == [bFoo.foo]
+    1
+    >>> list(h.callsTo(foo,x=42)) == [aFoo.foo]
+    1
+    >>> list(h.callsTo(foo,x=27)) == [bFoo.foo]
+    1
+
+Histories have a ``called()`` method, that tells you whether a given callable
+was called at least once during a ``trace()``.  As with ``callsTo()``, you can
+match methods, functions, and arguments::
+
+    >>> assert h.called(foo)
+    >>> assert h.called(aFoo.foo)
+    >>> assert h.called(bFoo.foo)
+    >>> assert h.called(foo, x=42)
+    >>> assert h.called(foo, x=27)
+    >>> assert h.called(aFoo.foo, x=42)
+    >>> assert h.called(bFoo.foo, x=27)
+    >>> assert not h.called(aFoo.foo, x=27)
+    >>> assert not h.called(bFoo.foo, x=42)
+    >>> assert not h.called(foo, x=99)
+
+Sometimes, you want to test that a function was called *exactly* once (no more,
+no less).  This is what the ``calledOnce()`` method does::
+
+    >>> assert h.calledOnce(aFoo.foo)
+    >>> assert h.calledOnce(bFoo.foo)
+    >>> assert not h.calledOnce(foo)    # foo function was called twice!
+    >>> assert h.calledOnce(foo, x=42)
+    >>> assert h.calledOnce(foo, x=27)
+    >>> assert h.calledOnce(aFoo.foo, x=42)
+    >>> assert h.calledOnce(bFoo.foo, x=27)
+
+Both ``called()`` and ``calledOnce()`` return a ``Call`` object (see `Call
+objects`_, below), if they find a match.  Otherwise, they return None:
+
+   >>> h.called(foo)
+   Call(...)
+
+   >>> h.calledOnce(aFoo.foo)
+   Call(...)
+   
+   >>> print h.called(foo, x=99)
+   None
+
+Histories are iterable, but their iterators have an extra ``find()`` method in
+addition to the usual ``next()`` method.  ``find()`` raises ``StopIteration``
+if the target isn't found::
+
+    >>> it = iter(h)
+    >>> it.find(foo) == foo
+    1
+    >>> it.find(foo) == foo
+    1
+    >>> it.find(foo) == foo
+    Traceback (most recent call last):
+    ...
+    StopIteration
+
+    >>> it = iter(h)
+    >>> it.find(aFoo.foo) == aFoo.foo
+    1
+    >>> it.find(aFoo.foo) == aFoo.foo
+    Traceback (most recent call last):
+    ...
+    StopIteration
+
+    >>> it = iter(h)
+    >>> it.find(foo,x=27) == bFoo.foo
+    1
+    >>> it.find(foo,x=27) == bFoo.foo
+    Traceback (most recent call last):
+    ...
+    StopIteration
+
+Histories can be limited as to how deeply they should track nested calls, and
+you can specify the maximum depth at creation time.  (The default depth is 5.)
+Here, we'll create a set of functions that call each other, with the innermost
+one raising an error, to prove that even though all the functions are called,
+the number of invocations recorded is dependent on the maximum depth setting::
+
+    >>> def f1(): f2()
+    >>> def f2(): f3()
+    >>> def f3(): f4()
+    >>> def f4(): f5()
+    >>> def f5(): f6()
+    >>> def f6(): raise TypeError
+    >>> h = History()
+    >>> h.trace(f1)
+    Traceback (most recent call last):
+    ...
+    TypeError
+    >>> list(h) == [f1,f2,f3,f4,f5]
+    1
+    >>> h = History(2)
+    >>> h.trace(f1)
+    Traceback (most recent call last):
+    ...
+    TypeError
+    >>> list(h) == [f1,f2]
+    1
+
+
+``Call`` objects
+================
+
+``Call`` objects are used to record invocations of callables, and are what are
+returned by ``History`` iterators.  They have an ``args`` attribute that
+provides access to the various arguments, as attributes::
+
+    >>> h = History()
+    >>> h.trace(aFoo.foo,42)
+    >>> [call] = list(h)
+    >>> call.args.x
+    42
+
+Calls also have a ``hadArgs()`` method that can be used to match a set of
+input parameters against the call.  The supplied keyword arguments are matched
+against the stored arguments, and if all of the supplied arguments are equal,
+then ``hadArgs()`` returns a true value::
+
+    >>> assert call.hadArgs(x=42)
+    >>> assert call.hadArgs(self=aFoo)
+    >>> assert call.hadArgs(self=aFoo, x=42)
+    >>> assert not call.hadArgs(a='q')
+    >>> assert not call.hadArgs(b=42)
+
+Finally, ``Call`` objects compare equal to callables that match their code
+object and/or arguments, or to identical invocations::
+
+    >>> h = History()
+    >>> h.trace(aFoo.foo)
+    >>> h.trace(bFoo.foo)
+    >>> [aCall, bCall] = list(h)
+
+    >>> aCall == bCall      # parameters differ, so not equal
+    0
+    >>> aCall == foo        # code matches, no args specified, so equal
+    1
+    >>> bCall == foo        # code matches, no args specified, so equal
+    1
+    >>> aCall == aFoo.foo   # code and argument matches, so equal
+    1
+    >>> bCall == bFoo.foo   # code and argument matches, so equal
+    1
+    >>> aCall == bFoo.foo   # argument specified, but doesn't match
+    0
+    >>> bCall == aFoo.foo   # argument specified, but doesn't match
+    0
+
+
+
+---------------------------------
+How It Works (subject to change!)
+---------------------------------
+
+
+Profiling Events
+================
+
+History objects obtain events via the system profiler hook.  Specifically,
+they have a ``trace_event()`` method that receives a frame, event, and argument
+from the profiler hook.  To test this, we need a frame object that was used
+to invoke a known function::  
+
+    >>> import sys
+    >>> def frametest_func():
+    ...     return sys._getframe()
+    >>> frame = frametest_func()
+
+Each time a ``"call"`` event occurs, it should become part of the history::
+
+    >>> h = History(2)
+    >>> h.trace_event(frame,'call',None)
+    >>> list(h) == [frametest_func]
+    1
+    >>> h.trace_event(frame,'call',None)
+    >>> list(h) == [frametest_func]*2
+    1
+
+But, once the call depth has been exceeded, no further call events should be
+registered::
+
+    >>> h.trace_event(frame,'call',None)
+    >>> list(h) == [frametest_func]*2
+    1
+
+...until sufficient ``"return"`` events have occurred::
+
+    >>> h.trace_event(frame,'return',None)    # close the third level
+    >>> h.trace_event(frame,'return',None)    # close the second level
+    >>> h.trace_event(frame,'call',None)      # record a new second-level call
+    >>> list(h) == [frametest_func]*3
+    1
+
+What about exceptions?  An exception event can occur more than once in a given
+frame, so we should treat an exception as a return, if and only if the frame
+passed is not the frame we saw last:
+
+    >>> h.trace_event(frame,'exception',())   # No effect...
+    >>> h.trace_event(frame,'call',None)      # Likewise
+    >>> list(h) == [frametest_func]*3
+    1
+    >>> h.trace_event(frametest_func(),'exception',())    # close third-level
+    >>> h.trace_event(frametest_func(),'exception',())    # close second-level
+    >>> h.trace_event(frame,'call',None)      # record a new second-level call
+    >>> list(h) == [frametest_func]*4
+    1
+    
+Now let's see if we can run the profiler on a history::
+
+    >>> h = History(2)
+    >>> result = h.trace(frametest_func)
+    >>> list(h)==[frametest_func]
+    1
+
+    >>> def anotherFunc(x):
+    ...     frametest_func()
+
+    >>> h = History(2)
+    >>> h.trace(anotherFunc, 27)
+    >>> list(h)==[anotherFunc, frametest_func]
+    1
+
+    >>> h.called(anotherFunc).args.x
+    27
+
+
+``Call`` Implementation
+=======================
+
+``Call`` objects are used to record invocations of callables, and are what are
+returned by ``History`` iterators.  They are created using a code object and a
+locals dictionary::
+
+    >>> foo_code = foo.func_code
+    >>> args = {'a':'b','q':42}
+    >>> from peak.util.unittrace import Call
+    >>> c = Call(foo_code, args)
+
+They have an ``args`` attribute that provides access to the various arguments,
+as attributes::
+
+    >>> c.args.a
+    'b'
+    >>> c.args.q
+    42
+
+The original input locals are copied, so that in the event the invocation
+rebinds any locals, the original arguments remain intact::
+
+    >>> args['a']=999
+    >>> c.args.a
+    'b'
+
+
+The ``splitCallable()`` Function
+================================
+
+This is a private function, so we need to import it directly::
+
+    >>> from peak.util.unittrace import splitCallable
+
+It splits a callable (function or method) into a code object, and a tuple of
+positional arguments representing the targets of any method wrappers::
+
+    # Function -> code,()
+    >>> assert splitCallable(foo) == (foo_code,())
+
+    # Bound method -> code, (self,)
+    >>> assert splitCallable(aFoo.foo) == (foo_code,(aFoo,))
+    >>> assert splitCallable(aFoo.foo) == (foo_code,(aFoo,))
+

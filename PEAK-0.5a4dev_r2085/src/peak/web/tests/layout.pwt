@@ -1,0 +1,1 @@
+<html this:is="page"><div this:replace="/params/body"/></html>

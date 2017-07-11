@@ -1,0 +1,3 @@
+<html with:page-layout="@@layout">
+    <div this:is='body' content:replace="."/>
+</html>

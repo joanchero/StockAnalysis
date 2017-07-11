@@ -1,0 +1,507 @@
+Fixes and Enhancements since Version 0.5 alpha 3
+
+ - PEAK no longer bundles any software that can be obtained automatically from
+   PyPI.  Running PEAK's setup script will attempt to download and install
+   the needed packages.  (Note that development snapshots of PEAK may require
+   development snapshots of related packages.)
+   
+ - Added a series of new QueryDM and EntityDM convenience features.  See
+   "Making Data Managers easier to use":http://www.eby-sarna.com/pipermail/peak/2005-May/002296.html
+   for a complete list and explanatory documentation.
+ 
+ - Changed 'running.lookupCommand()' to use the command's 'getCommandParent()'
+   method, so that commands using the '--config' option will utilize the
+   specified configuration(s) to lookup subcommands.
+   
+ - Added a '-c/--config' option to PEAK bootstrap commands to load an .ini
+   configuration file in a new service area before executing any subcommands.
+   
+   This allows you to do things like::
+   
+        peak launch -c bulletins ref:sitemap@sitemap.xml
+
+   which loads the 'bulletins' configuration file before launching the sitemap.
+   Note that if you are subclassing 'commands.Bootstrap' you can suppress this
+   option using 'options.reject_inheritance("-c","--config")' in the body of
+   your subclass' class definition.  You may wish to do this if your
+   application's subcommands must run in the same service area as the parent
+   command.  (E.g. if the parent command expects the subcommand to partake in
+   a transaction controlled by the parent command.)
+
+ - Added a 'value' property to 'model.Enumeration', so that you can access
+   an enumeration instance's value (i.e., the value it hashes and compares
+   equal to)
+
+ - Added a 'binding.hasParent(component,parent)' API function, which is
+   specially optimized for use with generic functions, so that you can
+   define generic function methods that apply only within some part of a
+   component hierarchy.
+   
+ - PEAK no longer supports Python 2.2; Python 2.3.4 or better is required.
+
+ - The kjbuckets extension module is no longer built and installed by default;
+   you must explicitly enable it with a '--with-kjbuckets' flag passed to
+   'setup.py'.  Please port your code as soon as practical, this option will
+   go away soon.
+
+ - Use of the included 'kjbuckets' module is now DEPRECATED, due to increasing
+   bitrot.  Aaron Watters originally wrote this extension for Python 1.2, and
+   it has not been well-maintained for newer versions of the Python/C API.
+   Instead of 'kjSet' objects, use the Python 2.3 'Set' type, and instead of
+   the 'kjGraph' type, use the new 'Graph' type in 'peak.util.Graph'.  Some
+   porting effort may be required, as these types are not precisely the same
+   in signature as the originals.
+
+ - The '_setNS()' method of the 'peak.util.SOX.ISOXNode_NS' interface has
+   changed signature, due to a lack of use of the second argument in the code
+   base, and its dependency on 'kjbuckets'.
+
+ - The old 'peak.security' implementation has been removed, and replaced with
+   a simpler, more flexible implementation based on generic functions (using
+   less than half the code and seven fewer interfaces).  Complete documentation
+   and API tests for the new implementation can be found in 'rules.txt' in the
+   'peak.security' package directory.
+
+   Also, the new implemetation does not require redundant
+   'security.allow(security.Anybody)' declarations just because you've declared
+   other permissions for a class, so these declarations have been removed from
+   ``peak.web``.  They don't do any harm, however, so you can leave them in
+   your own code as long as you change them to use 'binding.metadata()' instead
+   of the deprecated 'security.allow()'.
+
+ - 'security.allow()' is now DEPRECATED; please use 'binding.metadata()'
+   instead.  (There is no change to the calling signature, but
+   'binding.metadata' accepts any metadata, not just permissions.)
+
+ - Added 'peak.running.options', a new option-parsing framework that extends
+   'optparse' to support the PEAK 'commands' framework.  Command instances
+   can now refer to 'self.parsed_args' to find their non-option arguments,
+   and to trigger setting of their attributes (or calling of methods) based on
+   their raw arguments from 'self.argv'.  See 'options.txt' in the
+   'peak.running' package directory for a complete tutorial.
+   
+ - There is now a 'binding.initAttrs()' function that can be used to initialize
+   an object's attributes from e.g. constructor keyword arguments, similar to
+   how 'binding.Component' and 'binding.Attribute' constructors work.
+
+ - Security permissions can now be declared as attribute metadata.
+
+   That is, instead of doing declarations like this::
+
+        class Foo:
+            bar = binding.Require("Something", permissionNeeded=SomePerm)
+
+        class AnElement(model.Element):
+            class someFeature(model.Attribute):
+                permissionNeeded = SomePerm
+                
+   you can (and should) now do them like this::
+
+        class Foo:
+            bar = binding.Require("Something", [SomePerm])
+ 
+        class AnElement(model.Element):
+            class someFeature(model.Attribute):
+                metadata = [SomePerm]
+
+   or this::
+
+        class Foo:
+            binding.metadata(bar = [SomePerm])
+
+        class AnElement(model.Element):
+
+            binding.metadata(someFeature = [SomePerm])
+            
+            class someFeature(model.Attribute):
+                # ...
+
+   It isn't necessary to enclose metadata in brackets, but it helps to
+   emphasize its annotational nature.  Also note that e.g. 'web.bindResource()'
+   needs 'metadata' to be a keyword argument.
+
+ - The 'permissionNeeded' attribute of 'model.Feature' and 'binding.Attribute'
+   objects is now DEPRECATED.  See examples above for how to upgrade, and please
+   switch to using metadata as soon as practical.  In addition the
+   'security.IGuardedDescriptor' interface has been removed, because it was
+   only used in connection with the 'permissionNeeded' attribute mechanism.
+   
+ - Added a new "attribute metadata" mini-framework to 'peak.binding'.  This
+   framework makes it possible to declare arbitrary metadata about attributes,
+   using either a class advisor ('binding.metadata()', similar in form and
+   function to the existing 'security.allow()') or using a 'metadata' attribute
+   of attribute bindings (which is the second positional parameter in all
+   the standard bindings like 'Make', 'Obtain', etc.).  Over time, existing
+   metadata mechanisms will be refactored to use this new mini-framework,
+   instead of the various integrated ad-hoc mechanisms that exist now (like
+   the 'permissionNeeded' attribute).  For more information on how the new
+   metadata hooks work, including doctest examples, see the 'attributes.txt'
+   file in the 'peak.binding' package, under the heading "Attribute Metadata".
+   
+ - Added a new function, 'binding.activateClass()', that can be used to
+   activate any bindings in the class.  This can now be used in place of
+   subclassing a PEAK base class or using a PEAK metaclass.  In future, this
+   will be integrated into PEAK attribute descriptors such that defining a
+   descriptor within a class' body is sufficient to cause this function to be
+   invoked.
+   
+ - 'binding.IBindingNode' was REMOVED, consolidated into 'binding.IComponent',
+   as its various individual methods have been replaced with generic functions
+   in the existing 'binding' API.  For example, 'binding.getParentComponent(x)'
+   should be used in preference to 'x.getParentComponent()' unless it is
+   a requirement that 'x' implement the full 'binding.IComponent' interface.
+   This makes it easier to define what 'binding.getParentComponent()' and
+   'binding.getComponentName()' will mean for non-component types, as you do
+   not have to define an adapter class with all of the 'IBindingNode' methods.
+   Also, this makes PEAK itself cleaner, as we often weren't bothering to
+   properly implement the full 'IBindingNode' interface anyway.
+
+   In addition, 'binding.suggestParentComponent()' is now also a generic
+   function, dispatching on the target (i.e. child) object.
+   
+ - 'naming.IReferenceable' was REMOVED, as it is not in use anywhere in PEAK.
+   This will be replaced with a generic function when we do actually need this
+   functionality.
+
+ - There is a new 'config.getStreamFactory' generic function, to make it easy
+   to accept URLs, filenames, or 'naming.IStreamFactory' objects as the source
+   of a "file".
+
+   Its typical usage is just::
+
+       factory = config.getStreamFactory(self,source)
+       stream = factory.open('t')  # open for reading in text mode
+
+   where 'source' is a string or a 'naming.IStreamFactory', and 'self' is a
+   component to be used as lookup context.  The returned 'factory' is a
+   'naming.IStreamFactory' that can then be '.open()'-ed for reading, or used
+   in other ways as needed.
+
+   If you have special objects that you'd like to be able to treat as stream
+   sources, you can register them by defining an extension, e.g.::
+
+    [config.getStreamFactory.when(MyType)]
+    def getStreamFactory(context,source):
+        """Return a naming.IStreamFactory for 'source' (a 'MyType' instance)"""
+
+   Wherever practical, as we encounter them, we'll be changing PEAK API's that
+   take filenames to also accept stream sources.
+
+ - Added an optional 'base' argument to 'naming.parseURL()', to allow parsing
+   URLs relative to a base URL.  For a URL scheme to support this, it must
+   implement the new 'naming.IBaseURL' interface.  See the
+   'peak.naming.factories.openable' module for example implementations.
+
+ - Added a 'data:' URL scheme, implementing RFC 2397 (although it's not as
+   strict in its parsing of the content type and parameters as the RFC calls
+   for).  This is a semi-convenient way to provide configuration data in-line,
+   since a 'data:' URL can be a 'config.getStreamFactory()' source.
+
+ - Added 'config.processXML()', a function that provides a high-level,
+   configuration-driven interface to 'peak.util.SOX.NegotiatingParser'.  This
+   simple front-end lets you supply as little as a configuration context and
+   a stream source, to do XML processing of arbitrary complexity, controlled by
+   the configuration of the context.
+   
+ - Added 'config.XMLKey()', an 'IConfigKey' type that can be used to register
+   configuration values for XML attribute and element names under specified
+   XML namespace URI's.  Also, there are now '[XML Attributes for nsuri]' and
+   '[XML Elements for nsuri]' section types available for use in .ini files.
+   (Replace 'nsuri' with the appropriate XML namespace URI, or use '*' for a
+   wildcard.)
+   
+ - 'web.IResource' is gone, replaced by 'web.IPlace'.  The notion of a place is
+   broader than the notion of a resource, and we will soon need to have
+   other "location" objects that implement 'IPlace'.
+   
+ - In order to support obtaining the line and column locations of problems in
+   XML files, we are now using Python 2.4's version of the 'pyexpat' module,
+   built as 'peak.util.pyexpat'.
+
+ - There's a new class, 'config.IniLoader', that can be used to lazily load
+   .ini files as configuration.  'IniLoader' instances have an 'iniFiles'
+   attribute that lists the configuration sources (filenames/URLs/factories)
+   to be used, and automatically load the .ini files as soon as you try to get
+   any configuration data for them.  Previously, similar functionality was only
+   available via 'config.makeRoot()'.
+
+   Also, there's now an 'ini' reference type that instantiates an 'IniLoader'
+   for one or more addresses.  You can use it like this::
+
+     [Named Services]
+
+     some.example = naming.Reference('ini',
+         ['pkgfile:peak/peak.ini', '/etc/something.ini']
+      )
+
+     another.example = naming.LinkRef(
+         'ref:ini@pkgfile:peak/peak.ini||/etc/something.ini'
+      )
+         
+   The two examples above will each load the same pair of specified .ini files.
+   You can also directly instantiate an 'IniLoader', as in::
+
+     cfg = config.IniLoader(self, iniFiles=['pkgfile:peak/peak.ini'])
+
+   Attempting to look up any configuration properties via the 'cfg' object
+   will cause it to load the specified .ini file.
+     
+ - 'config.fileNearModule()' is DEPRECATED, in favor of 'config.packageFile()'.
+   The latter returns a 'naming.IStreamFactory', which is more suitable for
+   working with e.g. module data files compressed in a zipfile.  Uses of
+   'fileNearModule()' that were being passed to 'config.loadConfigFile()' can
+   be safely changed to 'config.packageFile()' without needing any other code
+   changes, but if you were directly using 'fileNearModule()' as a filename,
+   you will need to rewrite appropriately.  
+
+ - 'config.loadConfigFile()' and 'config.loadConfigFiles()' now accept URLs,
+   'naming.IStreamFactory' objects, and other 'config.getStreamFactory()'
+   targets as well as filenames.  This was primarily added to support use of
+   'config.packageFile()' or 'pkgfile:' URLs, in place of using
+   'config.fileNearModule()'.
+
+ - The 'naming.IStreamFactory' interface now has an 'address' attribute, which
+   is the string form of the canonical URL of the target stream.  This was
+   added to make it easier to e.g. report errors in a stream that's being
+   parsed, since the parser only needs the factory in order to report the
+   location of an error.  (Note: if you implement 'naming.IStreamFactory', be
+   sure to add this attribute to your implementations.)
+
+ - The 'peak.util.WSGIServer' module has been moved to the
+   'wsgiref.simple_server' module.  The 'wsgiref' reference library for WSGI
+   (aka PEP 333) is now distributed with PEAK.
+
+ - Added a 'WSGI' command to the 'peak' script, to allow you to run "foreign"
+   (i.e. non-PEAK) PEP 333 applications in PEAK's various servers and
+   launchers.  Basically, by prefixing 'WSGI' before the import specifier, you
+   can now run such foreign apps.
+
+   For example::
+
+       peak launch WSGI import:some_app.application
+
+   will run 'some_app.application' in the local web browser, and::
+
+       peak CGI WSGI import:some_app.application
+   
+   will run it under the CGI/FastCGI runner.  Similarly, you can use this in
+   the "Command" spec for the "peak supervise" pre-forking FastCGI supervisor
+   subsystem.
+   
+ - There is a new 'running.IWSGIApplication' interface, for PEP 333-compliant
+   "application" objects, and all of PEAK's provided applications now implement
+   it instead of 'running.IRerunnableCGI'.  If you write your apps to the newer
+   interface, they'll be portable to any PEP 333-compliant web server, not just
+   the PEAK CGI, FastCGI, and "supervisor" containers.  There is a simple
+   adapter that allows 'IWSGIApplication' objects to run in the CGI-based
+   containers, but not the other way around, so using 'IRerunnableCGI' directly
+   now limits your portability.  (For example, the "peak launch" and "peak
+   serve" commands will soon require 'IWSGIApplication', and will not support
+   'IRerunnableCGI' any more.)
+
+   Of course, if you use the 'peak.web' framework, you don't need to worry
+   about any of this; your apps will automatically be wrapped as
+   'IWSGIApplication', and run in any PEAK server or gateway.
+
+ - Most 'peak.web' interfaces have changed significantly.  If you implemented
+   anything based on the older interfaces, and it still works, it's sheer
+   bloody luck.  In particular, note that every method in 'web.IWebTraversable'
+   now has different inputs and/or outputs than before.  Please read the new
+   interface docs and update your code!  The changed interfaces offer much
+   more flexibility and functionality than before, but they will require you to
+   update your code.
+
+ - 'web.ContainerAsTraversable' has been removed.  It was redundant, since the
+   new default traversal mechanism used by 'Traversable' and 'Decorator' now
+   handles getitem, getattr, and views.
+   
+ - Added Zope 3-like "namespaces" to 'peak.web'.  Path segments in a URL
+   may be prefixed with '"++some_id++"' in order to invoke a corresponding
+   namespace handler registered under '"peak.web.namespaces.some_id"'.
+   Namespace handlers must implement 'web.INamespaceHandler', and they are
+   supplied with the original path segment as well as the separated namespace
+   and name.  Also, as in Zope 3, '"@@foo"' is a shortcut for '"++view++foo"'.
+   Builtin namespaces at this time include 'view', 'item', 'attr', 'skin', and
+   'resources'.  'skin' treats the rest of its path segment as a skin name,
+   and sets the current skin, while 'resources' begins traversal to resources
+   found in the current skin.  The other namespaces are as described at:
+
+   "Resources and traversal in peak.web":http://www.eby-sarna.com/pipermail/peak/2004-August/001712.html
+
+ - Fixed several 'peak.events' bugs, as reported by Vladimir Iliev, Yaroslav
+   Samchuk, and Alexander Smishlajev:
+
+   * 'events.AnyOf' could hold multiple references to a single event source,
+     and nesting 'AnyOf()' calls could leak references to the nested events.
+
+   * 'events.subscribe()' had a potential race condition wherein a callback
+     could be invoked after its weak reference was garbage collected, leading
+     to bizarre error messages about 'self' being 'None'.
+
+   * 'select()' could be called on select event objects even if there were
+     no current subscribers to the event, potentially leading to calling
+     'select()' on a closed socket.
+
+   * Non-default signal handlers were remaining installed even when there
+     were no current subscribers to the applicable event, as long as a
+     reference to the event object existed.
+
+   As a result of these changes, certain I/O event types (esp. signals and
+   stream readable/writeable events) are now longer-lived.  For example,
+   signal event objects are now immortal, and the read/write event for a
+   particular 'fileno()' will be reused for as long as its supplying
+   'Selector' or 'EventLoop' instance exists.  (Previously, weak references
+   were used so that these objects would be recycled when not in use.)
+
+ - Added 'config.registeredProtocol()' API, that supports defining named and
+   local protocols.  This allows easy emulation of Zope 3's "named" and "local"
+   adapters and views.
+   
+ - 'binding.Component' objects no longer support instance configuration at
+   runtime (i.e., they no longer implement 'config.IConfigurable').  If you
+   need a component to be configurable at runtime, you must now derive from
+   (or mix in) 'binding.Configurable' instead.  If you get errors about
+   a missing 'registerProvider' attribute, or about being unable to adapt to
+   'IConfigurable', try changing your base class from 'binding.Component'
+   to 'binding.Configurable', or add it as a mixin if you're deriving from
+   a class that uses 'binding.Component' as its base.
+
+ - 'binding.IComponent' no longer derives from 'config.IConfigurable' or
+   'config.IConfigMap', only 'config.IConfigSource'.  This means that
+   'IComponent' no longer guarantees or requires the presence of the
+   'registerProvider()' method: now only 'config.IConfigurable' does that.
+
+ - The 'config.IConfigMap' interface is now DEPRECATED.  Use
+   'config.IConfigurable' instead.  The '_configKeysMatching()' method
+   of 'IConfigMap' was moved to 'config.IConfigSource', so if you've
+   implemented a custom 'IConfigSource', be sure to add this method.
+
+ - 'web.ISkinService' and 'web.ILayerService' were consolidated into
+   'web.IInteractionPolicy', because the need to have configurable
+   implementations of these services is negligible.  That is, the
+   corresponding property namespaces ('peak.web.skins' and 'peak.web.layers')
+   are more than adequate as registries.
+   
+ - Removed 'peak.running.timers' and 'peak.util.dispatch'.  Neither was in
+   active use, and both are being replaced by the new generic functions
+   package in PyProtocols.
+
+ - The 'config.iterParents' API is now moved to 'binding.iterParents', and all
+   'binding' functions that walk the component hierarchy use it.  It has also
+   been changed to avoid infinite loops in the case of a pathological
+   component structure.
+
+ - The 'persistence' package has been moved to 'peak.persistence' to avoid
+   conflicts with ZODB3 and the latest version of Zope 3.  It will eventually
+   be phased out, but for now this move is the simplest way to get it out of
+   the way.
+   
+ - The 'peak.util.SOX' module now uses only one parser, based directly on
+   'expat', instead of using SAX.  The new parser expects a new node interface,
+   'IXMLBuilder', but adapters from the previous interfaces ('ISOXNode' and
+   'ISOXNode_NS') are supplied for backward compatibility.  All of PEAK's
+   direct XML handling (currently just 'peak.storage.xmi' and
+   'peak.web.templates') have been refactored to use the new interface.  Some
+   parsing classes (such as 'ObjectMakingHandler', 'NSHandler', and
+   'DOMletParser') are no longer available.
+
+ - 'peak.web' no longer uses Zope X3 for HTTP publishing support; it has been
+   refactored to use a "simpler, more uniform architecture":http://www.eby-sarna.com/pipermail/peak/2004-May/001462.html
+   See also "more on the architecture":http://www.eby-sarna.com/pipermail/peak/2004-June/001482.html
+   and subsequent posts in that thread.
+
+   As a consequence, "various features have been removed":http://www.eby-sarna.com/pipermail/peak/2004-June/001500.html
+   from 'peak.web', for possible return at a future date.  Here is a rough
+   outline of the changes made so far:
+   
+    * The 'pageProtocol', 'pathProtocol', and 'errorProtocol' machinery are
+      gone.  They will be replaced in the future with an explicit "controller"
+      wrapping mechanism to allow application-specific renderings of the same
+      underlying components.
+
+    * The Zope 'request' and 'response' objects are gone, along with all of
+      their special handling for cookies, character sets, form variables,
+      automatically marshalling parameters to functions, etc.  These items of
+      functionality will be gradually replaced by functions in 'peak.web.api'.
+
+      As a result of this, arbitrary functions and methods can no longer be
+      used as web pages; instead, functions and methods to be published must
+      use the same inputs and outputs as the 'IHTTPHandler.handle_http()'
+      method.
+
+    * The 'IWebPage', 'IWebInteraction', 'ITraversalContext', 'Traversal',
+      'TraversalContext', and 'Interaction' interfaces and classes no longer
+      exist, as they are unneeded in the new architecture.  Instead of
+      having a central 'IWebInteraction' that's referenced by numerous
+      'ITraversalContext' objects, the new approach uses an 'environ' mapping
+      for most functions.  For access control, a 'security.IInteraction' is
+      now used, whose function is limited to security checks.  Most
+      functions previously performed by 'IWebInteraction' have moved to
+      'IInteractionPolicy' or to 'peak.web.api' functions operating on
+      'environ' mappings.
+
+    * Web exceptions can define a 'levelName' attribute that determines the
+      severity level with which the exception will be logged.  This allows
+      one to e.g. avoid logging tracebacks for 'NotFound' errors.
+
+    * Various interface calling signatures have changed slightly.  For example,
+      'IAuthService.getUser()' now accepts an 'environ' mapping instead of
+      an interaction.  'IInteractionPolicy.newInteraction()' now takes keyword
+      arguments, but not a 'request'.  The 'IWebTraversable' interface no longer
+      has a 'getObject()' method, and the 'IWebException.handleException()'
+      method signature has changed as well.  Finally, all methods that
+      previously accepted 'ITraversalContext' (such as
+      'IDOMletState.renderFor()') now expect 'environ' mappings.
+
+    * 'web.TestInteraction' was replaced with 'web.TestPolicy', and
+      'web.Interaction' was removed, since 'IWebInteraction' is no longer part
+      of the architecture.
+
+ - The 'log()' method of PEAK loggers ('logs.ILogger') now accepts a level name
+   *or* a number, for convenient invocation.
+
+ - SQL transaction semantics have changed.  Now, issuing an SQL statement
+   *always* causes the connection to join the active PEAK transaction, even if
+   you request that the SQL be issued "outside" a transaction.  Such SQL will
+   be issued outside of the *database* transaction, but not outside of the
+   PEAK transaction.  This simplifies the overall processing model for dealing
+   with "untransacted" SQL such as Sybase DDL or read-only Oracle transactions.
+   (In particular, the requirement that triggered this change was to allow
+   Oracle read-only transactions to be released at the end of the current PEAK
+   transaction.)  Also, got rid of the now-meaningless 'begin' command in n2.
+
+ - The 'events.IEventSource' interface now returns a 'canceller' function from
+   the 'addCallback()' method, allowing you to cancel a previously-scheduled
+   callback.  This fixes a memory leak and performance problem with
+   'events.AnyOf()', which previously could accumulate unneeded callbacks on
+   the sources it was monitoring.  Note that if you have developed any custom
+   event sources with 'addCallback()' methods, you must make sure that they
+   return a canceller from now on.
+
+ - Added 'ref:factory@addr1||addr2' URL scheme that maps to a corresponding
+   'naming.Reference("factory",["addr1","addr2"])'.  'factory' can be either a
+   dotted import string referencing a 'naming.IObjectFactory', or you can
+   define a factory in the 'peak.naming.factories' property space.
+
+ - Added a 'zconfig.schema' factory, so that 'ref:zconfig.schema@streamURL'
+   will load a schema loader.  Schema loaders are themselves object factories,
+   so you can do something like::
+
+     [Named Services]
+     peak.naming.factories.myschema = \
+         naming.LinkRef('ref:zconfig.schema@pkgfile:mypkg/Schema.xml')
+
+   in order to make URLs like 'ref:myschema@filename' work.  Note, by the way,
+   that the above could also read::
+
+     [Named Services]
+     peak.naming.factories.myschema = \
+         naming.Reference('zconfig.schema',['pkgfile:mypkg/Schema.xml'])
+
+   which runs somewhat faster at lookup time.  Similarly, one can also use
+   'naming.Reference("myschema",["somefile"])' in place of a
+   'naming.LinkRef("ref:myschema@filename")'.  As well as being faster, for
+   some use cases it's easier to 'Reference' directly than to glue together
+   a 'ref:' URL string.
+
+

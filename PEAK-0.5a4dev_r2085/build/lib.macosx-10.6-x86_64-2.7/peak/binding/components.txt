@@ -1,0 +1,219 @@
+==================
+Binding Components
+==================
+
+    >>> from peak.api import *
+
+
+
+---------------------------
+The Component Hierarchy API
+---------------------------
+
+    >>> root = config.makeRoot()
+    >>> c1 = binding.Component(root,"c1")
+    >>> c2 = binding.Component(root)
+    >>> c1a = binding.Component(c1)
+
+
+Fundamental Operations
+======================
+
+There are two fundamental operations in the component hierarchy API.  These
+generic functions are used as a basis for all of the other operations, so to
+use the rest of the hierarchy API for a given type, you need only define
+methods for these two basic operations.  Definitions already exist for
+PEAK-supplied types and for modules, so you only need to add methods for
+types you want to use, that aren't subclasses of an already supported type.
+
+``getParentComponent(component)``
+    Return parent of `component`, or ``None`` if root or non-component, e.g.::
+
+        >>> binding.getParentComponent(c1a) is c1
+        True
+
+    This also works for module objects, and 'binding.ActiveClass' objects,
+    for which the containing module or package is returned::
+
+        >>> binding
+        <module 'peak.binding.api' from ...>
+
+        >>> binding.getParentComponent(binding)
+        <module 'peak.binding' from ...>
+
+        >>> binding.Component
+        <class 'peak.binding.components.Component'>
+
+        >>> binding.getParentComponent(binding.Component)
+        <module 'peak.binding.components' from ...>
+
+    This is a single-dispatch generic function, so you can add cases for
+    additional object types using 'binding.getParentComponent.when()' as a
+    decorator.  For example::
+
+        >>> class MyComponent:
+        ...     def __init__(self,parent): self.my_parent = parent
+
+        >>> anOb = MyComponent(42)
+        >>> print binding.getParentComponent(anOb)  # not a known type yet
+        None
+
+        >>> if binding.getParentComponent.when(MyComponent):    # XXX @
+        ...     def get_for_myComponent(component):
+        ...         return component.my_parent
+
+        >>> binding.getParentComponent(anOb)    # now it's known
+        42
+
+``getComponentName(component)``
+    Return name of `component`, or ``None`` if unknown or a non-component::
+
+        >>> binding.getComponentName(c1)
+        'c1'
+        >>> print binding.getComponentName(c2)
+        None
+        >>> print binding.getComponentName(42)
+        None
+
+    This also works for module objects, and 'binding.ActiveClass' objects,
+    for which the module or class' '__name__' is returned::
+
+        >>> binding.getComponentName(protocols)
+        'protocols'
+
+        >>> binding.getComponentName(binding.Component)
+        'Component'
+
+    This is a single-dispatch generic function, so you can add cases for
+    additional object types using 'binding.getComponentName.when()' as a
+    decorator::
+
+        >>> class MyComponent:
+        ...     def __init__(self,name): self.my_name = name
+
+        >>> anOb = MyComponent("blue 42")
+        >>> print binding.getComponentName(anOb)  # not a known type yet
+        None
+
+        >>> if binding.getComponentName.when(MyComponent):    # XXX @
+        ...     def get_for_myComponent(component):
+        ...         return component.my_name
+
+        >>> binding.getComponentName(anOb)  # now it's known
+        'blue 42'
+
+So, any class for which the above two operations are defined can be used with
+the remaining hierarchy APIs, below.
+
+
+Convenience Operations
+======================
+
+These convenience APIs are shortcuts for common usage patterns when working
+with a component hierarchy.  They're defined in terms of the fundamental
+operations above, so they'll work for any type you've defined the fundamental
+operations for, and will degrade gracefully for other types.
+
+``iterParents(component,max_depth=100)``
+    Iterate over the parents of `component`, beginning with `component` itself,
+    in hierarchy order up through the root component (i.e., the first component
+    whose parent is ``None``)::
+
+        >>> list(binding.iterParents(c1)) == [c1,root]
+        True
+        >>> list(binding.iterParents(c1a)) == [c1a,c1,root]
+        True
+        >>> list(binding.iterParents(root)) == [root]
+        True
+        >>> list(binding.iterParents(42)) == [42]
+        True
+        
+    The `max_depth` parameter controls how deeply the hierarchy can be iterated
+    before a recursion error occurs.  This is intended to prevent infinite
+    iteration if you accidentally create a circular hierarchy, e.g.::
+    
+        >>> x = binding.Component()
+        >>> x.setParentComponent(x)
+
+        >>> list(binding.iterParents(x))
+        Traceback (most recent call last):
+        ...
+        RuntimeError: ('maximum recursion limit exceeded', ...)
+
+        >>> del x
+
+    Currently, PEAK assumes that there is little reason to have a component
+    with 100 levels of parents; consider that if each component in such a
+    hierarchy has two children, that's 2^100 objects, which is more objects
+    than can be fit into a 64-bit computer's address space.  :)
+
+
+``hasParent(component,parent)``
+    Is `component` within the hierarchy of `parent`?  This routine returns
+    truth if ``component is parent`` or if `parent` is one of the parents of
+    `component`::
+    
+        >>> binding.hasParent(c1a,c1a)
+        True
+        >>> binding.hasParent(c1a,c1)
+        True
+        >>> binding.hasParent(c1a,root)
+        True
+        >>> binding.hasParent(c1a,c2)
+        False
+
+    ``hasParent()`` is specially optimized for use with generic functions,
+    so that you can define generic function methods that apply only within
+    a particular component hierarchy.
+
+
+``getRootComponent(component)``
+    Return the root component of the tree `component` belongs to.  Basically
+    this returns the first parent of `component` whose parent is ``None``::
+
+        >>> binding.getRootComponent(c1) is root
+        True
+    
+        >>> binding.getRootComponent(binding)
+        <module 'peak' from ...>
+    
+        >>> binding.getRootComponent(binding.Component)
+        <module 'peak' from ...>
+
+        >>> binding.getRootComponent(42)
+        42
+
+
+``getComponentPath(component,relativeTo=None)``
+    Return the ``binding.ComponentName`` that would traverse from `relativeTo`
+    to `component`::
+
+        >>> binding.getComponentPath(binding.Component)
+        ComponentName(['', 'binding', 'components', 'Component'])
+
+        >>> print binding.getComponentPath(binding.Component)
+        /binding/components/Component
+
+    If `relativeTo` is ``None`` or not supplied, the path returned is relative
+    to the root component of `component`.  Note that if supplied, `relativeTo`
+    must be an ancestor (parent, parent's parent, etc.) of `component`::
+
+        >>> import peak
+        >>> binding.getComponentPath(binding.Component, peak)
+        ComponentName(['binding', 'components', 'Component'])
+
+        >>> print binding.getComponentPath(binding.Component, peak)
+        binding/components/Component
+
+
+Finding Components
+==================
+   
+XXX lookupComponent, acquireComponent, IComponentKey, ComponentName
+
+Assembling Components
+=====================
+
+XXX notifyUponAssembly, suggestParentComponent, IAttachable
+
+

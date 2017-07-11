@@ -1,0 +1,14 @@
+<html with:page-layout="/default">
+ <head>
+  <title>Python Object <span this:replace="@@test-params" with:foo="@@repr"/></title>
+ </head>
+ <body>
+<h1>Python Object <span this:replace="@@repr"/></h1>
+<hr />
+My URL is <span this:replace="/absoluteURL"/>.
+The server name as a property: <span
+    this:uses="/environ/SERVER_NAME"
+    content:expects="peak.config.api:IConfigKey"
+><span this:replace="@@repr"/></span>
+<hr />
+</body></html>

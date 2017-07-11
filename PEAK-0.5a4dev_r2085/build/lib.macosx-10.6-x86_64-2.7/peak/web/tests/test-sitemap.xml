@@ -1,0 +1,28 @@
+<location id="root" config="configure-test.ini">
+
+    <view name="index_html" object="1"/>
+
+    <container object="{'123':123, 'abc':'abc', 'both':[123,'abc']}"/>
+
+    <content type="object">
+        <import module="peak.web.templates" as="pwt"/>
+        <view name="repr" expr="`ob`"/>
+        <view name="test-params"
+              expr="pwt.Replace(dataSpec=web.TraversalPath('/params/foo'))" />
+        <view name="index_html" resource="peak.web.tests/showobject"/>
+    </content>
+
+    <content type="int" location="repr@root">
+        <view name="layout-test" resource="peak.web.tests/repr.pwt"/>
+        <view name="layout"      resource="peak.web.tests/layout.pwt"/>
+    </content>
+
+    <content type="str" location="value@root">
+        <view name="value" expr="ob"/>
+    </content>
+
+    <content type="list">
+        <view name="index_html" resource="peak.web.tests/showlist"/>
+    </content>
+
+</location>

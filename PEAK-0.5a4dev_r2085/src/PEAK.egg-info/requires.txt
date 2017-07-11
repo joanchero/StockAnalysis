@@ -1,0 +1,7 @@
+RuleDispatch >= 0.5a0dev
+PyProtocols  >= 1.0a0dev-r2070
+wsgiref      >= 0.0.1dev
+ZConfig      >  2.0
+
+[FastCGI]
+fcgiapp >= 1.4

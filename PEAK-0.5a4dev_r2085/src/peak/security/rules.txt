@@ -1,0 +1,596 @@
+========================================================
+Implementing Access Control Rules with ``peak.security``
+========================================================
+
+Applications often need to provide different access to different users.  In
+simple applications the access may be controlled by "security levels" that
+apply globally, but more complex applications may have security rules that
+depend on the state of application objects, or the relationship between a user
+and some set of objects.  The ``peak.security`` framework provides tools for
+defining and using security rules in both simple and complex applications.
+
+
+
+.. contents:: **Table of Contents**
+
+
+------------------
+Terms and Concepts
+------------------
+
+The ``peak.security`` framework allows an application to find out whether
+a `user` has `permission` to perform an action on some `subject` in some
+`context`.  Specifically, an application asks a context whether the user
+has the permission for the subject, and receives either a true value
+(indicating success), or a `denial` object, indicating failure.
+
+Let's look at each of these five concepts in turn, using the PEAK API to build
+our examples::
+
+    >>> from peak.api import security, binding
+
+
+Users
+=====
+
+``peak.security`` doesn't have any predefined notion of what a "user" or
+"principal" is, so you can use whatever objects make sense for your
+application -- even strings or integers if you want!  For our examples, we'll
+just make up a simple ``TestUser`` class, whose instances hold a name, and when
+printed, show that name::
+
+    >>> class TestUser:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...     def __repr__(self):
+    ...         return self.name
+
+Let's see if it works::
+
+    >>> Bob = TestUser("Bob")
+    >>> Bob
+    Bob
+
+For our examples, we could've just as easily used strings, but any significant
+application is going to have some kind of user object with other behaviors
+besides just having a name.  For example, they might be stored in a database
+or LDAP directory, and have methods to check or change their password or other
+login credentials.
+
+(Note, by the way, that the security rule framework doesn't deal with how users
+"log in" or "authenticate"; that's entirely up to your application.  Security
+rules just determine what a particular user can or can't do in the application.
+That is, security rules determine whether or not a user has *permission* to
+do something.)
+
+
+Permissions
+===========
+
+``peak.security`` defines access rights using "permissions".  A permission is
+just a symbol that can be used to identify 1) a group of similar users, 2) a
+role that users may have with respect to some object, or 3) a group of related
+privileges.  Here are some examples of each::
+
+    >>> class Administrator(security.Permission):
+    ...     """A member of the administrator group"""
+
+    >>> class Attendee(security.Permission):
+    ...     """A person who will be attending a given workshop"""
+
+    >>> class EditTotals(security.Permission):
+    ...     """Permission to perform various total-editing functions"""
+
+In some security systems, these functions might be separately performed by
+"groups", "roles", and "permissions", but ``peak.security`` doesn't make such
+distinctions.  You have complete freedom to include or exclude such ideas
+from your security model, according to the needs of your application.
+
+By themselves, permissions have no meaning.  Your application gives permissions
+meaning by checking whether the user has them, before allowing them to perform
+an action.  Your security rules then determine whether the action will
+be allowed, by checking the state of the application or by checking for other
+permissions.  For example, you could have a rule that says anyone who has the
+``Administrator`` permission automatically has the ``EditTotals`` permission as
+well.  (By having the rule that checks for ``EditTotals`` check to see if the
+user has the ``Administrator`` permission.)
+
+
+For your convenience, ``peak.security`` also predefines a couple of built-in
+permissions for you, along with default security rules to make them work::
+
+    >>> security.Anybody
+    <class 'peak.security...Anybody'>
+
+    >>> security.Nobody
+    <class 'peak.security...Nobody'>
+
+By the default rules, every user has the ``security.Anybody`` permission
+in relation to every object.  So, you can use this permission to indicate
+public access.  Conversely, no user has the ``security.Nobody`` permission
+in relation to any object, so you can use it to indicate data or operations
+that should never be accessed except by the application software itself.
+
+
+Subjects
+========
+
+A "subject" is any object that the application deals with.  There are no
+special requirements here; it can be quite literally anything.  Your security
+rules may test for the type or value of the subject and inspect any of its
+attributes, in order to determine whether a user has a permission for the
+object.  Ordinarily, subject objects will be instances of your application's
+"domain model" objects, which is to say the objects that users do things with,
+like Message objects in an e-mail program, or Posts in a blogging application.
+For our simpler examples, we'll just use an anonymous object at first::
+
+    >>> aSubject = object()
+
+But later on we'll show some more sophisticated examples from an equipment
+tracking application.
+
+
+Context
+=======
+
+In order to determine whether a user has some permission for a subject, we
+must first have a *context* in which our security rules will apply.  The class
+of the context object determines what security rules will apply; the context
+instance can also be used to hold references to domain-specific objects needed
+to evaluate security rules, such as access control lists, a database
+connection, etc.  You could probably even create a context class that would
+automatically cache repeated permission lookups, if you wanted to, but we
+won't get into that degree of complexity in this document.
+
+Typically, you will use a subclass of ``security.Context``, but for our first
+examples we only want the default behavior and security rules, so we'll just
+use a simple ``Context`` instance::
+
+    >>> context = security.Context()
+
+Security contexts provide two access control methods, both implemented as
+generic functions:
+
+``hasPermission(user,perm,subject)``
+    Does `user` have permission `perm` for `subject`?
+
+``permissionFor(subject,name=None)``
+    What permission is needed to access attribute `name` of `subject`?
+    (This will be discussed further in the section on `Linking Actions to
+    Permissions`_.  For now we'll be focusing exclusively on the
+    ``hasPermission()`` method.)
+
+Security rules are used to define the behavior of these methods, either
+globally, or for instances of a specific context class.  You can place rules in
+any number of independent context classes, and then automatically combine them
+using multiple inheritance (as we'll see a little later on).
+
+Now that we have a user, permissions, a subject, and a context, we can now
+ask security questions like, "Does ``Bob`` have the ``Anybody`` permission on
+``aSubject``?"::
+
+    >>> context.hasPermission(Bob, security.Anybody, aSubject)
+    True
+
+Yes, he does.  As we said before, everybody has the ``security.Anybody``
+permission on everything, because of a default security rule built in to the
+framework.  Similarly, there's a default rule that says no user has the
+``security.Nobody`` permission, for any subject::
+
+    >>> context.hasPermission(Bob, security.Nobody, aSubject)
+    security.Denial('Access forbidden')
+
+And, by default, permissions are denied when no applicable rules are found::
+
+    >>> context.hasPermission(Bob, Administrator, aSubject)
+    security.Denial('Access denied.')
+
+
+Denials
+=======
+
+You'll notice that failed permission checks return ``security.Denial`` objects,
+rather than ``False``.  This is so that a user interface that's checking
+permissions can present the user with feedback about the issue, such as telling
+them what permissions are required, or requesting that they log in, use a more
+secure access method, etc.
+
+``Denial`` objects are false objects, so if you code something like ``if
+context.hasPermission(...)``, the ``if`` will only succeed if the user has the
+specified permission for the specified subject.  Here are examples of
+all the features of ``security.Denial`` instances::
+
+    >>> d = security.Denial("No soup for you!")
+    >>> d.message
+    'No soup for you!'
+    >>> d           # repr()
+    security.Denial('No soup for you!')
+    >>> print d     # str()/unicode()
+    No soup for you!
+    >>> bool(d)
+    False
+    >>> not d
+    True
+    >>> if d:
+    ...     print "Got soup!"
+    ... else:
+    ...     print "No soup.  :("
+    No soup.  :(
+
+Denial objects don't really have any other special behaviors; they're really
+just a convenient way for a rule to provide a false value while also supplying
+an explanation of *why* the rule denied access.  For convenience in displaying
+the denial message, you can either take its ``str()`` or ``unicode()`` value,
+or just use its ``message`` attribute, as appropriate for your application.
+
+
+------------
+Access Rules
+------------
+
+Access rules are defined by adding methods to the ``security.hasPermission()``
+generic function.  The ``when()`` clause for a rule can test for any or all of:
+
+* The type of the ``user`` parameter
+* The type of the ``subject`` parameter
+* The specific permission (``perm``) involved
+
+In order to determine whether the rule should be applied in a given case.
+The body of the rule (i.e. the method) should then determine whether the user
+actually has the permission for the subject, and return either ``True`` or a
+``security.Denial`` instance.
+
+(Note that you must *not* make this determination in the ``when()`` clause, or
+else you won't be able to return a ``Denial`` when the check fails.  Only use
+the ``when()`` clause to determine whether the rule should be applied, not
+whether the rule will actually grant the permission.)
+
+Let's look at some examples of defining and using access rules, so you can
+see how this works.
+
+
+Basic Rules and Inheritance
+===========================
+
+The default security rules aren't very useful by themselves in a real
+application, so let's define something a little bit closer to what a real
+application might use.  For example, your application model might give user
+objects a flag attribute indicating that they have ``Administrator``
+privileges::
+
+    >>> class AppWithFlagRule(security.Context):
+    ...     [security.hasPermission.when("perm==Administrator")]
+    ...     def checkAdministrator(self,user,perm,subject):
+    ...         if getattr(user,'isAdmin',False):
+    ...             return True
+    ...         return security.Denial("You must be an administrator.")
+    >>> app = AppWithFlagRule()
+    >>> Bob.isAdmin = True
+    >>> app.hasPermission(Bob, Administrator, aSubject)
+    True
+    >>> Bob.isAdmin = False
+    >>> app.hasPermission(Bob, Administrator, aSubject)
+    security.Denial('You must be an administrator.')
+
+Or, perhaps your application has a list of administrators, loaded from a
+configuration file or database::
+
+    >>> class AppWithAdminList(security.Context):
+    ...     def __init__(self,admins):
+    ...         self.admins = admins
+    ...
+    ...     [security.hasPermission.when("perm==Administrator")]
+    ...     def checkAdministrator(self,user,perm,subject):
+    ...         return user in self.admins or security.Denial(
+    ...             "You must be an administrator."
+    ...         )
+    >>> app = AppWithAdminList([Bob])
+    >>> app.hasPermission(Bob, Administrator, aSubject)
+    True
+    >>> app.admins.remove(Bob)
+    >>> app.hasPermission(Bob, Administrator, aSubject)
+    security.Denial('You must be an administrator.')
+
+As you can see, creating access rules is just a simple matter of adding
+methods to the existing generic function, ``security.hasPermission``.
+You can define rules for a specific permission, or any permission, as well as
+for specific subject classes, or any subject.  In essence, security rules can
+be almost completely arbitrary.  For example, if we want to make our "Bob" user
+have every permission in a given context, we can do this::
+
+    >>> class BobRules(security.Context):
+    ...     [security.hasPermission.when("user==Bob")]
+    ...     def BobIsGod(self,user,perm,subject):
+    ...         return True
+
+And in this context, Bob will have any permission we can throw at him::
+
+    >>> bobsWorld = BobRules()
+    >>> bobsWorld.hasPermission(Bob, Administrator, aSubject)
+    True
+
+But other users aren't so lucky in Bob's world::
+
+    >>> Susan = TestUser("Susan")
+    >>> bobsWorld.hasPermission(Susan, Administrator, aSubject)
+    security.Denial('Access denied.')
+
+Notice that the default denial rule defined for ``security.Context`` still
+applies to the ``BobRules`` subclass.  Let's create a similar context for
+Susan::
+
+    >>> class SusansPlace(security.Context):
+    ...     [security.hasPermission.when("user==Susan")]
+    ...     def SusanIsGodHere(self,user,perm,subject):
+    ...         return True
+
+    >>> susaphone = SusansPlace()
+    >>> susaphone.hasPermission(Susan, Administrator, aSubject)
+    True
+    >>> susaphone.hasPermission(Bob, Administrator, aSubject)
+    security.Denial('Access denied.')
+
+No surprises there.  But what happens if we combine the two::
+
+    >>> class JointRule(BobRules, SusansPlace):
+    ...     pass
+    >>> jointContext = JointRule()
+    >>> jointContext.hasPermission(Susan, Administrator, aSubject)
+    True
+    >>> jointContext.hasPermission(Bob, Administrator, aSubject)
+    True
+
+The rules from both base classes apply to the joint subclass, so you can
+actually create modular, independent sets of security rules, and then combine
+them using inheritance in a straightforward way.
+
+If you are using multiple inheritance, however, you must take care to ensure
+that you do not have conflicting rules defined for the base classes.  For
+example, if both base classes had rules for ``when("perm==Administrator")``,
+then you will have a rule conflict when checking the ``Administrator``
+permission.  To resolve the conflict, you must create a new rule in the
+combined subclass for ``when("perm=Administrator")`` that determines what the
+actual rule should be.  
+
+    
+Semantic Rules
+==============
+
+So far, we've only played around with rules that check for a specific user or
+permission, and we've stuck to using a single "subject" for our checks.  But
+such rules aren't much use in a sophisticated application that needs
+permissions to be driven by the application semantics.
+
+For example, consider an equipment inventory tracking system for IT equipment
+in a corporation's multiple data centers.  Staff need to be able to check out
+batches of inventory items (such as hard drives, CPUs, memory, etc.) and
+install them in computers, or ship them to other facilities.  A shipment is a
+specialized kind of batch, that has an origin and destination facility.
+
+We will only allow someone with the ``Shipper`` permission on a given shipment
+to cancel that shipment.  We will only allow someone with the ``Receiver``
+permission to "receive" the shipment.  But, we will consider anyone who has
+the ``Staff`` permission for the shipment's origin facility to be a ``Shipper``
+for that shipment, and anyone who has the ``Staff`` permission for the
+destination facility to be a ``Receiver`` for that shipment.  And, we'll
+consider a user to have the ``Staff`` permission for a facility, if he or
+she is listed in the facility's ``staff`` attribute::
+
+    >>> class Shipment:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...     def __repr__(self):
+    ...         return self.name
+
+    >>> class Facility:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...     def __repr__(self):
+    ...         return self.name
+
+    >>> class Shipper(security.Permission):
+    ...     """User is a "logical sender" of the shipment"""
+
+    >>> class Receiver(security.Permission):
+    ...     """User is a "logical receiver" of the shipment"""
+
+    >>> class Staff(security.Permission):
+    ...     """User is a member of staff at a facility"""
+
+    >>> class ShippingRules(security.Context):
+    ...
+    ...     [security.hasPermission.when(
+    ...         "perm==Shipper and isinstance(subject,Shipment)")]
+    ...     def checkShipper(self,user,perm,subject):
+    ...         return self.hasPermission(user,Staff,subject.fromFacility)
+    ...
+    ...     [security.hasPermission.when(
+    ...         "perm==Receiver and isinstance(subject,Shipment)")]
+    ...     def checkReceiver(self,user,perm,subject):
+    ...         return self.hasPermission(user,Staff,subject.toFacility)
+    ...
+    ...     [security.hasPermission.when(
+    ...         "perm==Staff and isinstance(subject,Facility)")]
+    ...     def checkStaffMember(self,user,perm,subject):
+    ...         return user in subject.staff or \
+    ...             security.Denial(
+    ...                 "%s is not a member of staff at %s" %(user,subject)
+    ...             )
+
+Now let's try them out::
+
+    >>> context = ShippingRules()
+    >>> NewYork = Facility("New York")
+    >>> Paris = Facility("Paris")
+    >>> NewYork.staff = [Bob]
+    >>> Paris.staff = [Susan]
+    >>> Shipment1 = Shipment("Shipment One")
+    >>> Shipment1.fromFacility = NewYork
+    >>> Shipment1.toFacility = Paris
+
+    >>> context.hasPermission(Bob, Staff, NewYork)
+    True
+    >>> context.hasPermission(Susan, Staff, Paris)
+    True
+
+    >>> context.hasPermission(Bob, Shipper, Shipment1)
+    True
+    >>> context.hasPermission(Susan, Receiver, Shipment1)
+    True
+
+    >>> context.hasPermission(Susan, Shipper, Shipment1)
+    security.Denial('Susan is not a member of staff at New York')
+    >>> context.hasPermission(Bob, Receiver, Shipment1)
+    security.Denial('Bob is not a member of staff at Paris')
+
+Notice that we get back helpful messages explaining why Susan can't cancel
+the shipment, and Bob can't receive the shipment, because the shipper/receiver
+rules simply return the result of the nested permission check directly. (Always
+make sure your security checks return a helpful ``Denial``, even if they have
+to be internationalized at some level of the system.)
+
+By the way, note that in our example, it makes no sense to have the ``Staff``
+permission for a shipment, or the ``Shipper`` permission for a facility::
+
+    >>> context.hasPermission(Bob, Shipper, NewYork)
+    security.Denial('Access denied.')
+
+    >>> context.hasPermission(Susan, Staff, Shipment1)
+    security.Denial('Access denied.')
+
+So, you only need to define rules for combinations of permissions and subjects
+that make sense in your application.  Anything you don't define rules for will
+just be denied.
+
+Also notice that our example showed delegation from one permission to another.
+You can use this to implement concepts like, "people in Group X get permission
+Y", where X and Y are both permissions.  Indeed, you can implement pretty much
+any imaginable discretionary access control model by defining appropriate
+rules in a context class.
+
+
+------------------------------
+Linking Actions to Permissions
+------------------------------
+
+So how do applications know what permissions to check for?  You can, of course
+hardcode permission checks, but often it's easier to link operation or
+attribute names with permissions, as part of an application's class
+metadata.  That way, other frameworks like ``peak.web`` can automatically
+figure out what permission is needed before allowing access to an attribute.
+
+For example::
+
+    >>> class Foo:
+    ...     binding.metadata(foobar=Administrator)
+    >>> aFoo = Foo()
+    >>> context.permissionFor(aFoo,"foobar")
+    <class 'Administrator'>
+
+Note that attributes for which no permission has been defined return
+``None`` from ``permissionFor``::
+
+    >>> print context.permissionFor(aFoo,"noSuchAttribute")
+    None
+
+This allows a framework to tell the difference between an attribute declared
+private (e.g. with permission of ``security.Nobody``) and attributes which
+have not been declared.  Under most circumstances, however, these are the same
+thing in terms of practical effect, and the default "no undeclared permissions"
+rule will ensure that this doesn't lead to unintended access::
+
+    >>> context.hasPermission(Bob, None, aSubject)
+    security.Denial('Access denied.')
+
+But, it's good to know that the ``None`` return value exists if you're writing
+code that looks up permissions for names, especially if you need to distinguish
+between an attribute where access is possible (but denied) and an attribute
+for which no access is even theoretically possible.
+
+
+The "Existence" Permission
+==========================
+
+As you can see, ``security.Permission`` subclasses are suitable for use as
+attribute metadata, so you can use the ``peak.binding`` metadata API to declare
+a permission for an attribute name in a given class (and its subclasses, unless
+overridden by a metadata definition in the subclass).
+
+Sometimes, however, an application needs to know whether a user is even allowed
+to know that a particular object exists -- let alone access any of its
+attributes or operations!  For example, the templating system in ``peak.web``
+wants to ensure that it only displays items in a list that the user has
+permission to know about the existence of.  The "existence permission" for a
+given object can be obtained by calling ``permissionFor`` without a `name`
+argument::
+
+    >>> context.permissionFor(aFoo)
+    <class 'peak.security...Anybody'>
+
+Notice that by default, ``Anybody`` is allowed to know an object exists.  This
+is because under most circumstances, mere access to an object does not provide
+a user with any ability to do something with it -- even view it.  So, this is
+only needed in circumstances where non-application code (like the template
+system of ``peak.web``) needs to filter a list of items based on permissions.
+You can define the existence permission for a class using ``binding.metadata``
+or any of the related APIs like ``binding.declareMetadata``::
+
+    >>> class Baz:
+    ...     binding.metadata(Administrator)
+    >>> aBaz = Baz()
+    >>> context.permissionFor(aBaz)
+    <class 'Administrator'>
+
+So, instances of our new ``Baz`` class should now only be visible in such
+an interface if the user has ``Administrator`` permission on them.
+
+
+Enforcement and Packaging
+=========================
+
+Note that the access control rules framework in ``peak.security`` only handles
+the question of *whether* a user should have access.  It does not *enforce* any
+restrictions in and of itself.  Your application code must actually ask what
+permission(s) are required and whether the user has them, then grant or deny
+access as appropriate.
+
+However, this doesn't mean you can't use or create a framework that does the
+enforcement automatically.  For example, you could use Zope X3's "Proxy" type
+to enforce permissions by looking up the needed permission and checking whether
+the current user has it, before allowing access to an attribute.  Also,
+``peak.web`` does permission checks automatically before displaying any page,
+attribute, or view on an object, assuming that you've declared the permissions
+in your sitemap or in the objects' classes, and you've declared appropriate
+security rules to actually check the permisssions.  For example, if we wanted
+to use our ShippingRules for a peak.web application, we'd do something like::
+
+    from peak.api import web
+    
+    class ShippingPolicy(ShippingRules, web.InteractionPolicy):
+        pass
+
+and then add something like this to our application's .ini file::
+
+    [Component Factories]
+    peak.web.interfaces.IInteractionPolicy = myapp.ShippingPolicy
+
+This would configure ``peak.web`` to use a web interaction policy that includes
+our shipping-related security rules, so it can automatically check permissions
+according to the rules we've defined.
+
+Notice, by the way, that this means an application can have a set of core
+classes (like ``Shipment``, ``Facility``, etc.) with permission metadata for
+core concepts like ``Shipper``, ``Receiver`` and ``Staff``, but it's entirely
+independent of what rules are used to determine who gets those permissions!
+
+Thus, you can create a core application with default security rules, but then
+allow a given installation to completely customize their business rules for
+what users are allowed to do -- as is usually needed for "enterprise"
+applications.
+
+In addition, your core application is untouched by users' modifications, so
+upgrading the core application doesn't mean re-applying customization patches.
+Instead, the separately-packaged customer rules just need to add rules for any
+new permissions in the core application, and rules that rely on changed
+features in the application will need to be updated.
+

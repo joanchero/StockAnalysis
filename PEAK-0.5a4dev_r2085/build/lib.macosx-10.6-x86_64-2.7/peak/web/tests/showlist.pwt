@@ -1,0 +1,18 @@
+<html with:page-layout="/default">
+ <head>
+  <title>Python Object <span this:replace="@@repr"/></title>
+ </head>
+ <body>
+<h1 content:replace="@@test-params"><span content:is="foo">Python Object <span this:replace="@@repr"/></span></h1>
+<hr />
+<table content:list=".">
+<tr this:is="header">
+<td>Name</td><td>Last modified</td><td>Size</td><td>Description</td>
+</tr>
+<tr this:is="listItem">
+<td><a href="?" this:url.href="."><span this:replace="@@repr">?</span></a></td>
+<td></td><td></td><td></td>
+</tr>
+</table>
+<hr />
+</body></html>

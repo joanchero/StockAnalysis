@@ -1,0 +1,23 @@
+<html this:is="page">
+ <head>
+  <title>Index of <span domlet="text.notag:basename"/></title>
+ </head>
+ <body>
+<h1>Index of <span domlet="text.notag:basename"/></h1>
+<hr />
+<table domlet="list:contents">
+
+<div content:is="header">
+<tr><td>Name</td><td>Last modified</td><td>Size</td><td>Description</td></tr>
+<tr><td><a HREF="..">Parent Directory</a></td>
+<td></td><td></td><td></td></tr>
+</div>
+
+<tr define="listItem">
+<td><a href="?" domlet="url.href"><span domlet="text.notag:basename">?</span></a></td>
+<td></td><td></td><td></td>
+</tr>
+</table>
+<hr />
+
+</body></html>

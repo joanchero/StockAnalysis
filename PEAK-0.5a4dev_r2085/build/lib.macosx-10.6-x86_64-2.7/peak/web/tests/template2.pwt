@@ -1,0 +1,13 @@
+<body xmlns:this="mid:pwt-this@peak-dev.org" with:page-layout="/default">
+<h1 domlet="text:foo">Title Goes Here</h1>
+
+<ul domlet="list:bar">
+    <li define="listItem" domlet="text"></li>
+</ul>
+
+<a href="ignored" this:url.href="xml">
+The EventDriven.xml file, found at
+<span this:replace="/absoluteURL">this URL</span>
+</a>
+
+</body>
